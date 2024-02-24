@@ -1,0 +1,1705 @@
+From: <Saved by Blink>
+Snapshot-Content-Location: https://invent.kde.org/plasma/kwin/-/merge_requests/4833.patch
+Subject: 
+Date: Sat, 24 Feb 2024 06:44:47 -0000
+MIME-Version: 1.0
+Content-Type: multipart/related;
+	type="text/html";
+	boundary="----MultipartBoundary--mwkwEYX6FGdJITkmDlAgkhEo1ja6cd6CGlfX2cml3g----"
+
+
+------MultipartBoundary--mwkwEYX6FGdJITkmDlAgkhEo1ja6cd6CGlfX2cml3g----
+Content-Type: text/html
+Content-ID: <frame-1AA3D46A36259F478E94C6F56CB358BD@mhtml.blink>
+Content-Transfer-Encoding: quoted-printable
+Content-Location: https://invent.kde.org/plasma/kwin/-/merge_requests/4833.patch
+
+<html><head><meta http-equiv=3D"Content-Type" content=3D"text/html; charset=
+=3Dwindows-1252"><link rel=3D"stylesheet" type=3D"text/css" href=3D"cid:css=
+-abbb83f5-c51d-4717-9c46-e72df78e3319@mhtml.blink" /><meta name=3D"color-sc=
+heme" content=3D"light dark"></head><body><pre style=3D"word-wrap: break-wo=
+rd; white-space: pre-wrap;">From e15b20d822f5e11552a32801abdfce538dbaa3b6 M=
+on Sep 17 00:00:00 2001
+From: Xaver Hugl &lt;xaver.hugl@gmail.com&gt;
+Date: Mon, 25 Dec 2023 01:30:08 +0100
+Subject: [PATCH 1/7] backends: move output refresh duration to compositor
+
+---
+ autotests/drm/drmTest.cpp                                  | 2 +-
+ src/backends/drm/drm_abstract_output.cpp                   | 2 +-
+ src/backends/wayland/wayland_output.cpp                    | 2 +-
+ src/backends/x11/standalone/x11_standalone_egl_backend.cpp | 2 +-
+ src/backends/x11/standalone/x11_standalone_glx_backend.cpp | 2 +-
+ src/backends/x11/windowed/x11_windowed_output.cpp          | 2 +-
+ src/compositor.cpp                                         | 2 +-
+ src/core/renderbackend.cpp                                 | 7 ++++---
+ src/core/renderbackend.h                                   | 6 ++++--
+ 9 files changed, 15 insertions(+), 12 deletions(-)
+
+diff --git a/autotests/drm/drmTest.cpp b/autotests/drm/drmTest.cpp
+index 9211fd81269..67a6e5beaca 100644
+--- a/autotests/drm/drmTest.cpp
++++ b/autotests/drm/drmTest.cpp
+@@ -385,7 +385,7 @@ void DrmTest::testModeset()
+     output-&gt;renderLoop()-&gt;prepareNewFrame();
+     output-&gt;renderLoop()-&gt;beginPaint();
+     layer-&gt;endFrame(infiniteRegion(), infiniteRegion());
+-    QVERIFY(output-&gt;present(std::make_shared&lt;OutputFrame&gt;(output-=
+&gt;renderLoop(), layer)));
++    QVERIFY(output-&gt;present(std::make_shared&lt;OutputFrame&gt;(output-=
+&gt;renderLoop(), std::chrono::nanoseconds(1'000'000'000'000 / output-&gt;r=
+efreshRate()), layer)));
+=20
+     gpu.reset();
+     verifyCleanup(mockGpu.get());
+diff --git a/src/backends/drm/drm_abstract_output.cpp b/src/backends/drm/dr=
+m_abstract_output.cpp
+index 91c42215221..d6cf70aded0 100644
+--- a/src/backends/drm/drm_abstract_output.cpp
++++ b/src/backends/drm/drm_abstract_output.cpp
+@@ -35,7 +35,7 @@ void DrmAbstractOutput::frameFailed() const
+=20
+ void DrmAbstractOutput::pageFlipped(std::chrono::nanoseconds timestamp, Pr=
+esentationMode mode)
+ {
+-    m_frame-&gt;presented(std::chrono::nanoseconds(1'000'000'000'000 / ref=
+reshRate()), timestamp, mode);
++    m_frame-&gt;presented(timestamp, mode);
+     m_frame.reset();
+ }
+=20
+diff --git a/src/backends/wayland/wayland_output.cpp b/src/backends/wayland=
+/wayland_output.cpp
+index c8b33ccf467..1a99a559729 100644
+--- a/src/backends/wayland/wayland_output.cpp
++++ b/src/backends/wayland/wayland_output.cpp
+@@ -125,7 +125,7 @@ WaylandOutput::WaylandOutput(const QString &amp;name, W=
+aylandBackend *backend)
+=20
+     connect(m_surface.get(), &amp;KWayland::Client::Surface::frameRendered=
+, this, [this]() {
+         Q_ASSERT(m_frame);
+-        m_frame-&gt;presented(std::chrono::nanoseconds(1'000'000'000'000 /=
+ refreshRate()), std::chrono::steady_clock::now().time_since_epoch(), Prese=
+ntationMode::VSync);
++        m_frame-&gt;presented(std::chrono::steady_clock::now().time_since_=
+epoch(), PresentationMode::VSync);
+         m_frame.reset();
+     });
+=20
+diff --git a/src/backends/x11/standalone/x11_standalone_egl_backend.cpp b/s=
+rc/backends/x11/standalone/x11_standalone_egl_backend.cpp
+index 5327181e650..e08fd00ef5d 100644
+--- a/src/backends/x11/standalone/x11_standalone_egl_backend.cpp
++++ b/src/backends/x11/standalone/x11_standalone_egl_backend.cpp
+@@ -424,7 +424,7 @@ std::chrono::nanoseconds EglBackend::queryRenderTime()
+=20
+ void EglBackend::vblank(std::chrono::nanoseconds timestamp)
+ {
+-    m_frame-&gt;presented(std::chrono::nanoseconds::zero(), timestamp, Pre=
+sentationMode::VSync);
++    m_frame-&gt;presented(timestamp, PresentationMode::VSync);
+     m_frame.reset();
+ }
+=20
+diff --git a/src/backends/x11/standalone/x11_standalone_glx_backend.cpp b/s=
+rc/backends/x11/standalone/x11_standalone_glx_backend.cpp
+index 83c2f1e748e..250cfdb95f2 100644
+--- a/src/backends/x11/standalone/x11_standalone_glx_backend.cpp
++++ b/src/backends/x11/standalone/x11_standalone_glx_backend.cpp
+@@ -759,7 +759,7 @@ void GlxBackend::present(Output *output, const std::sha=
+red_ptr&lt;OutputFrame&gt; &amp;fra
+=20
+ void GlxBackend::vblank(std::chrono::nanoseconds timestamp)
+ {
+-    m_frame-&gt;presented(std::chrono::nanoseconds::zero(), timestamp, Pre=
+sentationMode::VSync);
++    m_frame-&gt;presented(timestamp, PresentationMode::VSync);
+     m_frame.reset();
+ }
+=20
+diff --git a/src/backends/x11/windowed/x11_windowed_output.cpp b/src/backen=
+ds/x11/windowed/x11_windowed_output.cpp
+index 17f2fdaa846..4ac52a3a419 100644
+--- a/src/backends/x11/windowed/x11_windowed_output.cpp
++++ b/src/backends/x11/windowed/x11_windowed_output.cpp
+@@ -308,7 +308,7 @@ void X11WindowedOutput::resize(const QSize &amp;pixelSi=
+ze)
+ void X11WindowedOutput::handlePresentCompleteNotify(xcb_present_complete_n=
+otify_event_t *event)
+ {
+     std::chrono::microseconds timestamp(event-&gt;ust);
+-    m_frame-&gt;presented(std::chrono::nanoseconds(1'000'000'000'000 / ref=
+reshRate()), timestamp, PresentationMode::VSync);
++    m_frame-&gt;presented(timestamp, PresentationMode::VSync);
+     m_frame.reset();
+ }
+=20
+diff --git a/src/compositor.cpp b/src/compositor.cpp
+index 7e195dc0772..108a72a49a8 100644
+--- a/src/compositor.cpp
++++ b/src/compositor.cpp
+@@ -157,7 +157,7 @@ void Compositor::composite(RenderLoop *renderLoop)
+     superLayer-&gt;setOutputLayer(primaryLayer);
+=20
+     renderLoop-&gt;prepareNewFrame();
+-    auto frame =3D std::make_shared&lt;OutputFrame&gt;(renderLoop, primary=
+Layer);
++    auto frame =3D std::make_shared&lt;OutputFrame&gt;(renderLoop, std::ch=
+rono::nanoseconds(1'000'000'000'000 / output-&gt;refreshRate()), primaryLay=
+er);
+=20
+     if (superLayer-&gt;needsRepaint()) {
+         renderLoop-&gt;beginPaint();
+diff --git a/src/core/renderbackend.cpp b/src/core/renderbackend.cpp
+index ebb27276822..303d88e5448 100644
+--- a/src/core/renderbackend.cpp
++++ b/src/core/renderbackend.cpp
+@@ -14,8 +14,9 @@
+ namespace KWin
+ {
+=20
+-OutputFrame::OutputFrame(RenderLoop *loop, OutputLayer *layer)
++OutputFrame::OutputFrame(RenderLoop *loop, std::chrono::nanoseconds refres=
+hDuration, OutputLayer *layer)
+     : m_loop(loop)
++    , m_refreshDuration(refreshDuration)
+     , m_layer(layer)
+ {
+ }
+@@ -27,7 +28,7 @@ void OutputFrame::addFeedback(std::unique_ptr&lt;Presenta=
+tionFeedback&gt; &amp;&amp;feedback)
+     m_feedbacks.push_back(std::move(feedback));
+ }
+=20
+-void OutputFrame::presented(std::chrono::nanoseconds refreshDuration, std:=
+:chrono::nanoseconds timestamp, PresentationMode mode)
++void OutputFrame::presented(std::chrono::nanoseconds timestamp, Presentati=
+onMode mode)
+ {
+     std::chrono::nanoseconds renderTime;
+     if (m_layer) {
+@@ -35,7 +36,7 @@ void OutputFrame::presented(std::chrono::nanoseconds refr=
+eshDuration, std::chron
+     }
+     RenderLoopPrivate::get(m_loop)-&gt;notifyFrameCompleted(timestamp, ren=
+derTime, mode);
+     for (const auto &amp;feedback : m_feedbacks) {
+-        feedback-&gt;presented(refreshDuration, timestamp, mode);
++        feedback-&gt;presented(m_refreshDuration, timestamp, mode);
+     }
+ }
+=20
+diff --git a/src/core/renderbackend.h b/src/core/renderbackend.h
+index fb0b66d5875..0bb9c953a19 100644
+--- a/src/core/renderbackend.h
++++ b/src/core/renderbackend.h
+@@ -41,10 +41,10 @@ public:
+ class KWIN_EXPORT OutputFrame
+ {
+ public:
+-    explicit OutputFrame(RenderLoop *loop, OutputLayer *layer);
++    explicit OutputFrame(RenderLoop *loop, std::chrono::nanoseconds refres=
+hDuration, OutputLayer *layer);
+     ~OutputFrame();
+=20
+-    void presented(std::chrono::nanoseconds refreshDuration, std::chrono::=
+nanoseconds timestamp, PresentationMode mode);
++    void presented(std::chrono::nanoseconds timestamp, PresentationMode mo=
+de);
+     void failed();
+=20
+     void addFeedback(std::unique_ptr&lt;PresentationFeedback&gt; &amp;&amp=
+;feedback);
+@@ -57,6 +57,8 @@ public:
+=20
+ private:
+     RenderLoop *const m_loop;
++    const std::chrono::nanoseconds m_refreshDuration;
++    const QPointer&lt;OutputLayer&gt; m_layer;
+     std::vector&lt;std::unique_ptr&lt;PresentationFeedback&gt;&gt; m_feedb=
+acks;
+     std::optional&lt;ContentType&gt; m_contentType;
+     PresentationMode m_presentationMode =3D PresentationMode::VSync;
+--=20
+GitLab
+
+
+From 87b7af9e5e9d545904117e44cf710968e008416b Mon Sep 17 00:00:00 2001
+From: Xaver Hugl &lt;xaver.hugl@gmail.com&gt;
+Date: Mon, 25 Dec 2023 02:43:04 +0100
+Subject: [PATCH 2/7] backends/drm: store OutputFrames in the commit objects
+
+That way, multiple frames in flight can be tracked correctly
+---
+ src/backends/drm/drm_abstract_output.cpp   | 11 -----
+ src/backends/drm/drm_abstract_output.h     |  2 -
+ src/backends/drm/drm_commit.cpp            | 31 +++++++-----
+ src/backends/drm/drm_commit.h              | 14 +++---
+ src/backends/drm/drm_commit_thread.cpp     |  6 ---
+ src/backends/drm/drm_commit_thread.h       |  3 --
+ src/backends/drm/drm_egl_layer.cpp         |  4 +-
+ src/backends/drm/drm_egl_layer.h           |  2 +-
+ src/backends/drm/drm_gpu.cpp               | 15 ++++--
+ src/backends/drm/drm_gpu.h                 |  4 +-
+ src/backends/drm/drm_output.cpp            |  8 ++--
+ src/backends/drm/drm_pipeline.cpp          | 56 +++++++++-------------
+ src/backends/drm/drm_pipeline.h            | 20 ++++----
+ src/backends/drm/drm_pipeline_legacy.cpp   |  8 ++--
+ src/backends/drm/drm_plane.cpp             |  2 +-
+ src/backends/drm/drm_virtual_egl_layer.cpp |  2 +-
+ src/backends/drm/drm_virtual_egl_layer.h   |  2 +-
+ src/backends/drm/drm_virtual_output.cpp    |  3 +-
+ src/compositor.cpp                         |  2 +-
+ src/core/outputlayer.cpp                   |  2 +-
+ src/core/outputlayer.h                     |  3 +-
+ src/core/renderbackend.cpp                 | 13 +++--
+ src/core/renderbackend.h                   |  4 +-
+ src/core/renderloop.cpp                    |  2 +-
+ src/core/renderloop_p.h                    |  2 +-
+ 25 files changed, 105 insertions(+), 116 deletions(-)
+
+diff --git a/src/backends/drm/drm_abstract_output.cpp b/src/backends/drm/dr=
+m_abstract_output.cpp
+index d6cf70aded0..d433619ae96 100644
+--- a/src/backends/drm/drm_abstract_output.cpp
++++ b/src/backends/drm/drm_abstract_output.cpp
+@@ -28,17 +28,6 @@ RenderLoop *DrmAbstractOutput::renderLoop() const
+     return m_renderLoop.get();
+ }
+=20
+-void DrmAbstractOutput::frameFailed() const
+-{
+-    m_frame-&gt;failed();
+-}
+-
+-void DrmAbstractOutput::pageFlipped(std::chrono::nanoseconds timestamp, Pr=
+esentationMode mode)
+-{
+-    m_frame-&gt;presented(timestamp, mode);
+-    m_frame.reset();
+-}
+-
+ DrmGpu *DrmAbstractOutput::gpu() const
+ {
+     return m_gpu;
+diff --git a/src/backends/drm/drm_abstract_output.h b/src/backends/drm/drm_=
+abstract_output.h
+index 3556abbb2bc..a37c284f34e 100644
+--- a/src/backends/drm/drm_abstract_output.h
++++ b/src/backends/drm/drm_abstract_output.h
+@@ -25,8 +25,6 @@ public:
+     DrmAbstractOutput(DrmGpu *gpu);
+=20
+     RenderLoop *renderLoop() const override;
+-    void frameFailed() const;
+-    void pageFlipped(std::chrono::nanoseconds timestamp, PresentationMode =
+mode);
+     DrmGpu *gpu() const;
+=20
+     virtual bool present(const std::shared_ptr&lt;OutputFrame&gt; &amp;fra=
+me) =3D 0;
+diff --git a/src/backends/drm/drm_commit.cpp b/src/backends/drm/drm_commit.=
+cpp
+index ec4915091b0..e559c33bd2e 100644
+--- a/src/backends/drm/drm_commit.cpp
++++ b/src/backends/drm/drm_commit.cpp
+@@ -7,6 +7,7 @@
+     SPDX-License-Identifier: GPL-2.0-or-later
+ */
+ #include "drm_commit.h"
++#include "core/renderbackend.h"
+ #include "drm_blob.h"
+ #include "drm_buffer.h"
+ #include "drm_connector.h"
+@@ -53,10 +54,11 @@ void DrmAtomicCommit::addBlob(const DrmProperty &amp;pr=
+op, const std::shared_ptr&lt;Drm
+     m_blobs[&amp;prop] =3D blob;
+ }
+=20
+-void DrmAtomicCommit::addBuffer(DrmPlane *plane, const std::shared_ptr&lt;=
+DrmFramebuffer&gt; &amp;buffer)
++void DrmAtomicCommit::addBuffer(DrmPlane *plane, const std::shared_ptr&lt;=
+DrmFramebuffer&gt; &amp;buffer, const std::shared_ptr&lt;OutputFrame&gt; &a=
+mp;frame)
+ {
+     addProperty(plane-&gt;fbId, buffer ? buffer-&gt;framebufferId() : 0);
+     m_buffers[plane] =3D buffer;
++    m_frames[plane] =3D frame;
+     // atomic commits with IN_FENCE_FD fail with NVidia
+     if (plane-&gt;inFenceFd.isValid() &amp;&amp; !plane-&gt;gpu()-&gt;isNV=
+idia()) {
+         addProperty(plane-&gt;inFenceFd, buffer ? buffer-&gt;syncFd().get(=
+) : -1);
+@@ -131,20 +133,20 @@ bool DrmAtomicCommit::doCommit(uint32_t flags)
+     return drmIoctl(m_gpu-&gt;fd(), DRM_IOCTL_MODE_ATOMIC, &amp;commitData=
+) =3D=3D 0;
+ }
+=20
+-void DrmAtomicCommit::pageFlipped(std::chrono::nanoseconds timestamp) cons=
+t
++void DrmAtomicCommit::pageFlipped(std::chrono::nanoseconds timestamp)
+ {
+     Q_ASSERT(QThread::currentThread() =3D=3D QApplication::instance()-&gt;=
+thread());
+     for (const auto &amp;[plane, buffer] : m_buffers) {
+         plane-&gt;setCurrentBuffer(buffer);
+     }
+-    DrmPipeline::PageflipType type =3D DrmPipeline::PageflipType::Normal;
+-    if (m_modeset) {
+-        type =3D DrmPipeline::PageflipType::Modeset;
+-    } else if (m_cursorOnly) {
+-        type =3D DrmPipeline::PageflipType::CursorOnly;
++    for (const auto &amp;[plane, frame] : m_frames) {
++        if (frame) {
++            frame-&gt;presented(timestamp, m_mode);
++        }
+     }
++    m_frames.clear();
+     for (const auto pipeline : std::as_const(m_pipelines)) {
+-        pipeline-&gt;pageFlipped(timestamp, type, m_mode);
++        pipeline-&gt;pageFlipped(timestamp);
+     }
+ }
+=20
+@@ -185,6 +187,7 @@ void DrmAtomicCommit::merge(DrmAtomicCommit *onTop)
+     }
+     for (const auto &amp;[plane, buffer] : onTop-&gt;m_buffers) {
+         m_buffers[plane] =3D buffer;
++        m_frames[plane] =3D onTop-&gt;m_frames[plane];
+         m_planes.emplace(plane);
+     }
+     for (const auto &amp;[prop, blob] : onTop-&gt;m_blobs) {
+@@ -206,16 +209,16 @@ bool DrmAtomicCommit::isCursorOnly() const
+     return m_cursorOnly;
+ }
+=20
+-DrmLegacyCommit::DrmLegacyCommit(DrmPipeline *pipeline, const std::shared_=
+ptr&lt;DrmFramebuffer&gt; &amp;buffer)
++DrmLegacyCommit::DrmLegacyCommit(DrmPipeline *pipeline, const std::shared_=
+ptr&lt;DrmFramebuffer&gt; &amp;buffer, const std::shared_ptr&lt;OutputFrame=
+&gt; &amp;frame)
+     : DrmCommit(pipeline-&gt;gpu())
+     , m_pipeline(pipeline)
+     , m_buffer(buffer)
++    , m_frame(frame)
+ {
+ }
+=20
+ bool DrmLegacyCommit::doModeset(DrmConnector *connector, DrmConnectorMode =
+*mode)
+ {
+-    m_modeset =3D true;
+     uint32_t connectorId =3D connector-&gt;id();
+     if (drmModeSetCrtc(gpu()-&gt;fd(), m_pipeline-&gt;crtc()-&gt;id(), m_b=
+uffer-&gt;framebufferId(), 0, 0, &amp;connectorId, 1, mode-&gt;nativeMode()=
+) =3D=3D 0) {
+         m_pipeline-&gt;crtc()-&gt;setCurrent(m_buffer);
+@@ -235,10 +238,14 @@ bool DrmLegacyCommit::doPageflip(PresentationMode mod=
+e)
+     return drmModePageFlip(gpu()-&gt;fd(), m_pipeline-&gt;crtc()-&gt;id(),=
+ m_buffer-&gt;framebufferId(), flags, this) =3D=3D 0;
+ }
+=20
+-void DrmLegacyCommit::pageFlipped(std::chrono::nanoseconds timestamp) cons=
+t
++void DrmLegacyCommit::pageFlipped(std::chrono::nanoseconds timestamp)
+ {
+     Q_ASSERT(QThread::currentThread() =3D=3D QApplication::instance()-&gt;=
+thread());
+     m_pipeline-&gt;crtc()-&gt;setCurrent(m_buffer);
+-    m_pipeline-&gt;pageFlipped(timestamp, m_modeset ? DrmPipeline::Pagefli=
+pType::Modeset : DrmPipeline::PageflipType::Normal, m_mode);
++    if (m_frame) {
++        m_frame-&gt;presented(timestamp, m_mode);
++        m_frame.reset();
++    }
++    m_pipeline-&gt;pageFlipped(timestamp);
+ }
+ }
+diff --git a/src/backends/drm/drm_commit.h b/src/backends/drm/drm_commit.h
+index 5811e7d1453..8373ae032ce 100644
+--- a/src/backends/drm/drm_commit.h
++++ b/src/backends/drm/drm_commit.h
+@@ -32,6 +32,7 @@ class DrmGpu;
+ class DrmPlane;
+ class DrmProperty;
+ class DrmPipeline;
++class OutputFrame;
+=20
+ class DrmCommit
+ {
+@@ -39,7 +40,7 @@ public:
+     virtual ~DrmCommit();
+=20
+     DrmGpu *gpu() const;
+-    virtual void pageFlipped(std::chrono::nanoseconds timestamp) const =3D=
+ 0;
++    virtual void pageFlipped(std::chrono::nanoseconds timestamp) =3D 0;
+=20
+ protected:
+     DrmCommit(DrmGpu *gpu);
+@@ -60,7 +61,7 @@ public:
+         addProperty(prop, prop.valueForEnum(enumValue));
+     }
+     void addBlob(const DrmProperty &amp;prop, const std::shared_ptr&lt;Drm=
+Blob&gt; &amp;blob);
+-    void addBuffer(DrmPlane *plane, const std::shared_ptr&lt;DrmFramebuffe=
+r&gt; &amp;buffer);
++    void addBuffer(DrmPlane *plane, const std::shared_ptr&lt;DrmFramebuffe=
+r&gt; &amp;buffer, const std::shared_ptr&lt;OutputFrame&gt; &amp;frame);
+     void setVrr(DrmCrtc *crtc, bool vrr);
+     void setPresentationMode(PresentationMode mode);
+=20
+@@ -69,7 +70,7 @@ public:
+     bool commit();
+     bool commitModeset();
+=20
+-    void pageFlipped(std::chrono::nanoseconds timestamp) const override;
++    void pageFlipped(std::chrono::nanoseconds timestamp) override;
+=20
+     bool areBuffersReadable() const;
+     void setDeadline(std::chrono::steady_clock::time_point deadline);
+@@ -87,6 +88,7 @@ private:
+     const QList&lt;DrmPipeline *&gt; m_pipelines;
+     std::unordered_map&lt;const DrmProperty *, std::shared_ptr&lt;DrmBlob&=
+gt;&gt; m_blobs;
+     std::unordered_map&lt;DrmPlane *, std::shared_ptr&lt;DrmFramebuffer&gt=
+;&gt; m_buffers;
++    std::unordered_map&lt;DrmPlane *, std::shared_ptr&lt;OutputFrame&gt;&g=
+t; m_frames;
+     std::unordered_set&lt;DrmPlane *&gt; m_planes;
+     std::optional&lt;bool&gt; m_vrr;
+     std::unordered_map&lt;uint32_t /* object */, std::unordered_map&lt;uin=
+t32_t /* property */, uint64_t /* value */&gt;&gt; m_properties;
+@@ -98,16 +100,16 @@ private:
+ class DrmLegacyCommit : public DrmCommit
+ {
+ public:
+-    DrmLegacyCommit(DrmPipeline *pipeline, const std::shared_ptr&lt;DrmFra=
+mebuffer&gt; &amp;buffer);
++    DrmLegacyCommit(DrmPipeline *pipeline, const std::shared_ptr&lt;DrmFra=
+mebuffer&gt; &amp;buffer, const std::shared_ptr&lt;OutputFrame&gt; &amp;fra=
+me);
+=20
+     bool doModeset(DrmConnector *connector, DrmConnectorMode *mode);
+     bool doPageflip(PresentationMode mode);
+-    void pageFlipped(std::chrono::nanoseconds timestamp) const override;
++    void pageFlipped(std::chrono::nanoseconds timestamp) override;
+=20
+ private:
+     DrmPipeline *const m_pipeline;
+     const std::shared_ptr&lt;DrmFramebuffer&gt; m_buffer;
+-    bool m_modeset =3D false;
++    std::shared_ptr&lt;OutputFrame&gt; m_frame;
+     PresentationMode m_mode =3D PresentationMode::VSync;
+ };
+=20
+diff --git a/src/backends/drm/drm_commit_thread.cpp b/src/backends/drm/drm_=
+commit_thread.cpp
+index 3686ccb7110..6d9875d9fc7 100644
+--- a/src/backends/drm/drm_commit_thread.cpp
++++ b/src/backends/drm/drm_commit_thread.cpp
+@@ -62,17 +62,11 @@ DrmCommitThread::DrmCommitThread(const QString &amp;nam=
+e)
+                     m_committed =3D std::move(commit);
+                     m_commits.erase(m_commits.begin());
+                 } else {
+-                    const bool cursorOnly =3D std::all_of(m_commits.begin(=
+), m_commits.end(), [](const auto &amp;commit) {
+-                        return commit-&gt;isCursorOnly();
+-                    });
+                     for (auto &amp;commit : m_commits) {
+                         m_droppedCommits.push_back(std::move(commit));
+                     }
+                     m_commits.clear();
+                     qCWarning(KWIN_DRM) &lt;&lt; "atomic commit failed:" &=
+lt;&lt; strerror(errno);
+-                    if (!cursorOnly) {
+-                        QMetaObject::invokeMethod(this, &amp;DrmCommitThre=
+ad::commitFailed, Qt::ConnectionType::QueuedConnection);
+-                    }
+                 }
+                 QMetaObject::invokeMethod(this, &amp;DrmCommitThread::clea=
+rDroppedCommits, Qt::ConnectionType::QueuedConnection);
+             }
+diff --git a/src/backends/drm/drm_commit_thread.h b/src/backends/drm/drm_co=
+mmit_thread.h
+index 94bf2df7162..94b43a3183a 100644
+--- a/src/backends/drm/drm_commit_thread.h
++++ b/src/backends/drm/drm_commit_thread.h
+@@ -38,9 +38,6 @@ public:
+     void pageFlipped(std::chrono::nanoseconds timestamp);
+     bool pageflipsPending();
+=20
+-Q_SIGNALS:
+-    void commitFailed();
+-
+ private:
+     void clearDroppedCommits();
+     TimePoint estimateNextVblank(TimePoint now) const;
+diff --git a/src/backends/drm/drm_egl_layer.cpp b/src/backends/drm/drm_egl_=
+layer.cpp
+index 39a349bed9a..1b02a102030 100644
+--- a/src/backends/drm/drm_egl_layer.cpp
++++ b/src/backends/drm/drm_egl_layer.cpp
+@@ -97,7 +97,7 @@ ColorDescription EglGbmLayer::colorDescription() const
+     return m_surface.colorDescription();
+ }
+=20
+-bool EglGbmLayer::scanout(SurfaceItem *surfaceItem)
++bool EglGbmLayer::scanout(SurfaceItem *surfaceItem, const std::shared_ptr&=
+lt;OutputFrame&gt; &amp;frame)
+ {
+     static bool valid;
+     static const bool directScanoutDisabled =3D qEnvironmentVariableIntVal=
+ue("KWIN_DRM_NO_DIRECT_SCANOUT", &amp;valid) =3D=3D 1 &amp;&amp; valid;
+@@ -140,7 +140,7 @@ bool EglGbmLayer::scanout(SurfaceItem *surfaceItem)
+         return false;
+     }
+     m_scanoutBuffer =3D m_pipeline-&gt;gpu()-&gt;importBuffer(buffer);
+-    if (m_scanoutBuffer &amp;&amp; m_pipeline-&gt;testScanout()) {
++    if (m_scanoutBuffer &amp;&amp; m_pipeline-&gt;testScanout(frame)) {
+         m_dmabufFeedback.scanoutSuccessful(surface);
+         m_currentDamage =3D surfaceItem-&gt;mapFromBuffer(surfaceItem-&gt;=
+damage());
+         surfaceItem-&gt;resetDamage();
+diff --git a/src/backends/drm/drm_egl_layer.h b/src/backends/drm/drm_egl_la=
+yer.h
+index f98f74f5156..e4f18959546 100644
+--- a/src/backends/drm/drm_egl_layer.h
++++ b/src/backends/drm/drm_egl_layer.h
+@@ -30,7 +30,7 @@ public:
+=20
+     std::optional&lt;OutputLayerBeginFrameInfo&gt; beginFrame() override;
+     bool endFrame(const QRegion &amp;renderedRegion, const QRegion &amp;da=
+magedRegion) override;
+-    bool scanout(SurfaceItem *surfaceItem) override;
++    bool scanout(SurfaceItem *surfaceItem, const std::shared_ptr&lt;Output=
+Frame&gt; &amp;frame) override;
+     bool checkTestBuffer() override;
+     std::shared_ptr&lt;DrmFramebuffer&gt; currentBuffer() const override;
+     bool hasDirectScanoutBuffer() const override;
+diff --git a/src/backends/drm/drm_gpu.cpp b/src/backends/drm/drm_gpu.cpp
+index c1f5a91dd56..cdcef471716 100644
+--- a/src/backends/drm/drm_gpu.cpp
++++ b/src/backends/drm/drm_gpu.cpp
+@@ -740,13 +740,16 @@ bool DrmGpu::isActive() const
+=20
+ bool DrmGpu::needsModeset() const
+ {
+-    return std::any_of(m_pipelines.constBegin(), m_pipelines.constEnd(), [=
+](const auto &amp;pipeline) {
++    return !m_pendingModesetFrames.empty() || std::any_of(m_pipelines.cons=
+tBegin(), m_pipelines.constEnd(), [](const auto &amp;pipeline) {
+         return pipeline-&gt;needsModeset();
+     });
+ }
+=20
+-bool DrmGpu::maybeModeset()
++bool DrmGpu::maybeModeset(const std::shared_ptr&lt;OutputFrame&gt; &amp;fr=
+ame)
+ {
++    if (frame) {
++        m_pendingModesetFrames.push_back(frame);
++    }
+     auto pipelines =3D m_pipelines;
+     for (const auto &amp;output : std::as_const(m_drmOutputs)) {
+         if (output-&gt;lease()) {
+@@ -766,17 +769,19 @@ bool DrmGpu::maybeModeset()
+     for (DrmPipeline *pipeline : std::as_const(pipelines)) {
+         if (pipeline-&gt;modesetPresentPending()) {
+             pipeline-&gt;resetModesetPresentPending();
+-            if (err !=3D DrmPipeline::Error::None) {
+-                pipeline-&gt;output()-&gt;frameFailed();
+-            }
+         }
+     }
+     if (err =3D=3D DrmPipeline::Error::None) {
++        for (const auto &amp;frame : m_pendingModesetFrames) {
++            frame-&gt;presented(std::chrono::steady_clock::now().time_sinc=
+e_epoch(), PresentationMode::VSync);
++        }
++        m_pendingModesetFrames.clear();
+         return true;
+     } else {
+         if (err !=3D DrmPipeline::Error::FramePending) {
+             QTimer::singleShot(0, m_platform, &amp;DrmBackend::updateOutpu=
+ts);
+         }
++        m_pendingModesetFrames.clear();
+         return false;
+     }
+ }
+diff --git a/src/backends/drm/drm_gpu.h b/src/backends/drm/drm_gpu.h
+index f870140167f..bf264fa974f 100644
+--- a/src/backends/drm/drm_gpu.h
++++ b/src/backends/drm/drm_gpu.h
+@@ -37,6 +37,7 @@ class DrmVirtualOutput;
+ class EglDisplay;
+ class GraphicsBuffer;
+ class GraphicsBufferAllocator;
++class OutputFrame;
+=20
+ class DrmLease : public QObject
+ {
+@@ -103,7 +104,7 @@ public:
+=20
+     DrmPipeline::Error testPendingConfiguration();
+     bool needsModeset() const;
+-    bool maybeModeset();
++    bool maybeModeset(const std::shared_ptr&lt;OutputFrame&gt; &amp;frame)=
+;
+=20
+     GraphicsBufferAllocator *graphicsBufferAllocator() const;
+     std::shared_ptr&lt;DrmFramebuffer&gt; importBuffer(GraphicsBuffer *buf=
+fer);
+@@ -161,6 +162,7 @@ private:
+=20
+     std::unique_ptr&lt;QSocketNotifier&gt; m_socketNotifier;
+     QSize m_cursorSize;
++    std::vector&lt;std::shared_ptr&lt;OutputFrame&gt;&gt; m_pendingModeset=
+Frames;
+ };
+=20
+ }
+diff --git a/src/backends/drm/drm_output.cpp b/src/backends/drm/drm_output.=
+cpp
+index ae4a9543a32..4e5ac6096c7 100644
+--- a/src/backends/drm/drm_output.cpp
++++ b/src/backends/drm/drm_output.cpp
+@@ -279,15 +279,15 @@ bool DrmOutput::present(const std::shared_ptr&lt;Outp=
+utFrame&gt; &amp;frame)
+     if (needsModeset) {
+         m_pipeline-&gt;setPresentationMode(PresentationMode::VSync);
+         m_pipeline-&gt;setContentType(DrmConnector::DrmContentType::Graphi=
+cs);
+-        success =3D m_pipeline-&gt;maybeModeset();
++        success =3D m_pipeline-&gt;maybeModeset(frame);
+     } else {
+         m_pipeline-&gt;setPresentationMode(frame-&gt;presentationMode());
+         m_pipeline-&gt;setContentType(type);
+-        DrmPipeline::Error err =3D m_pipeline-&gt;present();
++        DrmPipeline::Error err =3D m_pipeline-&gt;present(frame);
+         if (err !=3D DrmPipeline::Error::None &amp;&amp; frame-&gt;present=
+ationMode() !=3D PresentationMode::VSync) {
+             // retry with a more basic presentation mode
+             m_pipeline-&gt;setPresentationMode(PresentationMode::VSync);
+-            err =3D m_pipeline-&gt;present();
++            err =3D m_pipeline-&gt;present(frame);
+         }
+         success =3D err =3D=3D DrmPipeline::Error::None;
+         if (err =3D=3D DrmPipeline::Error::InvalidArguments) {
+@@ -392,7 +392,7 @@ void DrmOutput::applyQueuedChanges(const std::shared_pt=
+r&lt;OutputChangeSet&gt; &amp;props
+     setState(next);
+=20
+     if (!isEnabled() &amp;&amp; m_pipeline-&gt;needsModeset()) {
+-        m_gpu-&gt;maybeModeset();
++        m_gpu-&gt;maybeModeset(nullptr);
+     }
+=20
+     m_renderLoop-&gt;setRefreshRate(refreshRate());
+diff --git a/src/backends/drm/drm_pipeline.cpp b/src/backends/drm/drm_pipel=
+ine.cpp
+index 5735134d74c..11de681ce65 100644
+--- a/src/backends/drm/drm_pipeline.cpp
++++ b/src/backends/drm/drm_pipeline.cpp
+@@ -42,11 +42,6 @@ DrmPipeline::DrmPipeline(DrmConnector *conn)
+     : m_connector(conn)
+     , m_commitThread(std::make_unique&lt;DrmCommitThread&gt;(conn-&gt;conn=
+ectorName()))
+ {
+-    QObject::connect(m_commitThread.get(), &amp;DrmCommitThread::commitFai=
+led, [this]() {
+-        if (m_output) {
+-            m_output-&gt;frameFailed();
+-        }
+-    });
+ }
+=20
+ DrmPipeline::~DrmPipeline()
+@@ -56,13 +51,17 @@ DrmPipeline::~DrmPipeline()
+     }
+ }
+=20
+-bool DrmPipeline::testScanout()
++bool DrmPipeline::testScanout(const std::shared_ptr&lt;OutputFrame&gt; &am=
+p;frame)
+ {
+     if (gpu()-&gt;needsModeset()) {
+         return false;
+     }
+     if (gpu()-&gt;atomicModeSetting()) {
+-        return commitPipelines({this}, CommitMode::Test) =3D=3D Error::Non=
+e;
++        auto fullState =3D std::make_unique&lt;DrmAtomicCommit&gt;(QList&l=
+t;DrmPipeline *&gt;{this});
++        if (Error err =3D prepareAtomicCommit(fullState.get(), CommitMode:=
+:Test, frame); err !=3D Error::None) {
++            return false;
++        }
++        return fullState-&gt;test();
+     } else {
+         if (m_primaryLayer-&gt;currentBuffer()-&gt;buffer()-&gt;size() !=
+=3D m_pending.mode-&gt;size()) {
+             // scaling isn't supported with the legacy API
+@@ -70,17 +69,17 @@ bool DrmPipeline::testScanout()
+         }
+         // no other way to test than to do it.
+         // As we only have a maximum of one test per scanout cycle, this i=
+s fine
+-        return presentLegacy() =3D=3D Error::None;
++        return presentLegacy(frame) =3D=3D Error::None;
+     }
+ }
+=20
+-DrmPipeline::Error DrmPipeline::present()
++DrmPipeline::Error DrmPipeline::present(const std::shared_ptr&lt;OutputFra=
+me&gt; &amp;frame)
+ {
+     Q_ASSERT(m_pending.crtc);
+     if (gpu()-&gt;atomicModeSetting()) {
+         // test the full state, to take pending commits into account
+         auto fullState =3D std::make_unique&lt;DrmAtomicCommit&gt;(QList&l=
+t;DrmPipeline *&gt;{this});
+-        if (Error err =3D prepareAtomicCommit(fullState.get(), CommitMode:=
+:Test); err !=3D Error::None) {
++        if (Error err =3D prepareAtomicCommit(fullState.get(), CommitMode:=
+:Test, frame); err !=3D Error::None) {
+             return err;
+         }
+         if (!fullState-&gt;test()) {
+@@ -88,7 +87,7 @@ DrmPipeline::Error DrmPipeline::present()
+         }
+         // only give the actual state update to the commit thread, so that=
+ it can potentially reorder the commits
+         auto primaryPlaneUpdate =3D std::make_unique&lt;DrmAtomicCommit&gt=
+;(QList&lt;DrmPipeline *&gt;{this});
+-        if (Error err =3D prepareAtomicPresentation(primaryPlaneUpdate.get=
+()); err !=3D Error::None) {
++        if (Error err =3D prepareAtomicPresentation(primaryPlaneUpdate.get=
+(), frame); err !=3D Error::None) {
+             return err;
+         }
+         if (m_pending.needsModesetProperties &amp;&amp; !prepareAtomicMode=
+set(primaryPlaneUpdate.get())) {
+@@ -102,14 +101,14 @@ DrmPipeline::Error DrmPipeline::present()
+             // already presented
+             return Error::None;
+         }
+-        return presentLegacy();
++        return presentLegacy(frame);
+     }
+ }
+=20
+-bool DrmPipeline::maybeModeset()
++bool DrmPipeline::maybeModeset(const std::shared_ptr&lt;OutputFrame&gt; &a=
+mp;frame)
+ {
+     m_modesetPresentPending =3D true;
+-    return gpu()-&gt;maybeModeset();
++    return gpu()-&gt;maybeModeset(frame);
+ }
+=20
+ DrmPipeline::Error DrmPipeline::commitPipelines(const QList&lt;DrmPipeline=
+ *&gt; &amp;pipelines, CommitMode mode, const QList&lt;DrmObject *&gt; &amp=
+;unusedObjects)
+@@ -136,7 +135,7 @@ DrmPipeline::Error DrmPipeline::commitPipelinesAtomic(c=
+onst QList&lt;DrmPipeline *&gt;
+         }
+     }
+     for (const auto &amp;pipeline : pipelines) {
+-        if (Error err =3D pipeline-&gt;prepareAtomicCommit(commit.get(), m=
+ode); err !=3D Error::None) {
++        if (Error err =3D pipeline-&gt;prepareAtomicCommit(commit.get(), m=
+ode, nullptr); err !=3D Error::None) {
+             return err;
+         }
+     }
+@@ -151,7 +150,7 @@ DrmPipeline::Error DrmPipeline::commitPipelinesAtomic(c=
+onst QList&lt;DrmPipeline *&gt;
+         }
+         const bool withoutModeset =3D std::all_of(pipelines.begin(), pipel=
+ines.end(), [](DrmPipeline *pipeline) {
+             auto commit =3D std::make_unique&lt;DrmAtomicCommit&gt;(QVecto=
+r&lt;DrmPipeline *&gt;{pipeline});
+-            return pipeline-&gt;prepareAtomicCommit(commit.get(), CommitMo=
+de::TestAllowModeset) =3D=3D Error::None &amp;&amp; commit-&gt;test();
++            return pipeline-&gt;prepareAtomicCommit(commit.get(), CommitMo=
+de::TestAllowModeset, nullptr) =3D=3D Error::None &amp;&amp; commit-&gt;tes=
+t();
+         });
+         for (const auto &amp;pipeline : pipelines) {
+             pipeline-&gt;m_pending.needsModeset =3D !withoutModeset;
+@@ -186,10 +185,10 @@ DrmPipeline::Error DrmPipeline::commitPipelinesAtomic=
+(const QList&lt;DrmPipeline *&gt;
+     }
+ }
+=20
+-DrmPipeline::Error DrmPipeline::prepareAtomicCommit(DrmAtomicCommit *commi=
+t, CommitMode mode)
++DrmPipeline::Error DrmPipeline::prepareAtomicCommit(DrmAtomicCommit *commi=
+t, CommitMode mode, const std::shared_ptr&lt;OutputFrame&gt; &amp;frame)
+ {
+     if (activePending()) {
+-        if (Error err =3D prepareAtomicPresentation(commit); err !=3D Erro=
+r::None) {
++        if (Error err =3D prepareAtomicPresentation(commit, frame); err !=
+=3D Error::None) {
+             return err;
+         }
+         if (m_pending.crtc-&gt;cursorPlane()) {
+@@ -221,7 +220,7 @@ static QRect centerBuffer(const QSize &amp;bufferSize, =
+const QSize &amp;modeSize)
+     }
+ }
+=20
+-DrmPipeline::Error DrmPipeline::prepareAtomicPresentation(DrmAtomicCommit =
+*commit)
++DrmPipeline::Error DrmPipeline::prepareAtomicPresentation(DrmAtomicCommit =
+*commit, const std::shared_ptr&lt;OutputFrame&gt; &amp;frame)
+ {
+     commit-&gt;setPresentationMode(m_pending.presentationMode);
+     if (m_connector-&gt;contentType.isValid()) {
+@@ -252,7 +251,7 @@ DrmPipeline::Error DrmPipeline::prepareAtomicPresentati=
+on(DrmAtomicCommit *commi
+     }
+     const auto primary =3D m_pending.crtc-&gt;primaryPlane();
+     primary-&gt;set(commit, QPoint(0, 0), fb-&gt;buffer()-&gt;size(), cent=
+erBuffer(fb-&gt;buffer()-&gt;size(), m_pending.mode-&gt;size()));
+-    commit-&gt;addBuffer(m_pending.crtc-&gt;primaryPlane(), fb);
++    commit-&gt;addBuffer(m_pending.crtc-&gt;primaryPlane(), fb, frame);
+     if (fb-&gt;buffer()-&gt;dmabufAttributes()-&gt;format =3D=3D DRM_FORMA=
+T_NV12) {
+         if (!primary-&gt;colorEncoding.isValid() || !primary-&gt;colorRang=
+e.isValid()) {
+             // don't allow NV12 direct scanout if we don't know what the d=
+river will do
+@@ -270,7 +269,7 @@ void DrmPipeline::prepareAtomicCursor(DrmAtomicCommit *=
+commit)
+     const auto layer =3D cursorLayer();
+     plane-&gt;set(commit, QPoint(0, 0), gpu()-&gt;cursorSize(), QRect(laye=
+r-&gt;position().toPoint(), gpu()-&gt;cursorSize()));
+     commit-&gt;addProperty(plane-&gt;crtcId, layer-&gt;isEnabled() ? m_pen=
+ding.crtc-&gt;id() : 0);
+-    commit-&gt;addBuffer(plane, layer-&gt;isEnabled() ? layer-&gt;currentB=
+uffer() : nullptr);
++    commit-&gt;addBuffer(plane, layer-&gt;isEnabled() ? layer-&gt;currentB=
+uffer() : nullptr, nullptr);
+     if (plane-&gt;vmHotspotX.isValid() &amp;&amp; plane-&gt;vmHotspotY.isV=
+alid()) {
+         commit-&gt;addProperty(plane-&gt;vmHotspotX, std::round(layer-&gt;=
+hotspot().x()));
+         commit-&gt;addProperty(plane-&gt;vmHotspotY, std::round(layer-&gt;=
+hotspot().y()));
+@@ -400,7 +399,7 @@ bool DrmPipeline::updateCursor()
+     if (m_pending.crtc-&gt;cursorPlane()) {
+         // test the full state, to take pending commits into account
+         auto fullState =3D std::make_unique&lt;DrmAtomicCommit&gt;(QList&l=
+t;DrmPipeline *&gt;{this});
+-        if (prepareAtomicPresentation(fullState.get()) !=3D Error::None) {
++        if (prepareAtomicPresentation(fullState.get(), nullptr) !=3D Error=
+::None) {
+             return false;
+         }
+         prepareAtomicCursor(fullState.get());
+@@ -434,19 +433,10 @@ DrmGpu *DrmPipeline::gpu() const
+     return m_connector-&gt;gpu();
+ }
+=20
+-void DrmPipeline::pageFlipped(std::chrono::nanoseconds timestamp, Pageflip=
+Type type, PresentationMode mode)
++void DrmPipeline::pageFlipped(std::chrono::nanoseconds timestamp)
+ {
++    RenderLoopPrivate::get(m_output-&gt;renderLoop())-&gt;notifyVblank(tim=
+estamp);
+     m_commitThread-&gt;pageFlipped(timestamp);
+-    if (type =3D=3D PageflipType::Modeset &amp;&amp; !activePending()) {
+-        return;
+-    }
+-    if (m_output) {
+-        if (type =3D=3D PageflipType::Normal || type =3D=3D PageflipType::=
+Modeset) {
+-            m_output-&gt;pageFlipped(timestamp, mode);
+-        } else {
+-            RenderLoopPrivate::get(m_output-&gt;renderLoop())-&gt;notifyVb=
+lank(timestamp);
+-        }
+-    }
+ }
+=20
+ void DrmPipeline::setOutput(DrmOutput *output)
+diff --git a/src/backends/drm/drm_pipeline.h b/src/backends/drm/drm_pipelin=
+e.h
+index 6cbb9ed9214..0c77c2cf294 100644
+--- a/src/backends/drm/drm_pipeline.h
++++ b/src/backends/drm/drm_pipeline.h
+@@ -34,6 +34,7 @@ class GammaRamp;
+ class DrmConnectorMode;
+ class DrmPipelineLayer;
+ class DrmCommitThread;
++class OutputFrame;
+=20
+ class DrmGammaRamp
+ {
+@@ -69,9 +70,9 @@ public:
+      * tests the pending commit first and commits it if the test passes
+      * if the test fails, there is a guarantee for no lasting changes
+      */
+-    Error present();
+-    bool testScanout();
+-    bool maybeModeset();
++    Error present(const std::shared_ptr&lt;OutputFrame&gt; &amp;frame);
++    bool testScanout(const std::shared_ptr&lt;OutputFrame&gt; &amp;frame);
++    bool maybeModeset(const std::shared_ptr&lt;OutputFrame&gt; &amp;frame)=
+;
+     void forceLegacyModeset();
+=20
+     bool needsModeset() const;
+@@ -83,12 +84,7 @@ public:
+     DrmConnector *connector() const;
+     DrmGpu *gpu() const;
+=20
+-    enum class PageflipType {
+-        Normal,
+-        CursorOnly,
+-        Modeset,
+-    };
+-    void pageFlipped(std::chrono::nanoseconds timestamp, PageflipType type=
+, PresentationMode mode);
++    void pageFlipped(std::chrono::nanoseconds timestamp);
+     bool pageflipsPending() const;
+     bool modesetPresentPending() const;
+     void resetModesetPresentPending();
+@@ -148,16 +144,16 @@ private:
+     std::shared_ptr&lt;DrmBlob&gt; createHdrMetadata(NamedTransferFunction=
+ transferFunction) const;
+=20
+     // legacy only
+-    Error presentLegacy();
++    Error presentLegacy(const std::shared_ptr&lt;OutputFrame&gt; &amp;fram=
+e);
+     Error legacyModeset();
+     Error applyPendingChangesLegacy();
+     bool setCursorLegacy();
+     static Error commitPipelinesLegacy(const QList&lt;DrmPipeline *&gt; &a=
+mp;pipelines, CommitMode mode);
+=20
+     // atomic modesetting only
+-    Error prepareAtomicCommit(DrmAtomicCommit *commit, CommitMode mode);
++    Error prepareAtomicCommit(DrmAtomicCommit *commit, CommitMode mode, co=
+nst std::shared_ptr&lt;OutputFrame&gt; &amp;frame);
+     bool prepareAtomicModeset(DrmAtomicCommit *commit);
+-    Error prepareAtomicPresentation(DrmAtomicCommit *commit);
++    Error prepareAtomicPresentation(DrmAtomicCommit *commit, const std::sh=
+ared_ptr&lt;OutputFrame&gt; &amp;frame);
+     void prepareAtomicCursor(DrmAtomicCommit *commit);
+     void prepareAtomicDisable(DrmAtomicCommit *commit);
+     static Error commitPipelinesAtomic(const QList&lt;DrmPipeline *&gt; &a=
+mp;pipelines, CommitMode mode, const QList&lt;DrmObject *&gt; &amp;unusedOb=
+jects);
+diff --git a/src/backends/drm/drm_pipeline_legacy.cpp b/src/backends/drm/dr=
+m_pipeline_legacy.cpp
+index 615e6804ede..dbab9fe2978 100644
+--- a/src/backends/drm/drm_pipeline_legacy.cpp
++++ b/src/backends/drm/drm_pipeline_legacy.cpp
+@@ -24,13 +24,13 @@
+ namespace KWin
+ {
+=20
+-DrmPipeline::Error DrmPipeline::presentLegacy()
++DrmPipeline::Error DrmPipeline::presentLegacy(const std::shared_ptr&lt;Out=
+putFrame&gt; &amp;frame)
+ {
+     if (Error err =3D applyPendingChangesLegacy(); err !=3D Error::None) {
+         return err;
+     }
+     const auto buffer =3D m_primaryLayer-&gt;currentBuffer();
+-    auto commit =3D std::make_unique&lt;DrmLegacyCommit&gt;(this, buffer);
++    auto commit =3D std::make_unique&lt;DrmLegacyCommit&gt;(this, buffer, =
+frame);
+     if (!commit-&gt;doPageflip(m_pending.presentationMode)) {
+         qCWarning(KWIN_DRM) &lt;&lt; "Page flip failed:" &lt;&lt; strerror=
+(errno);
+         return errnoToError();
+@@ -49,7 +49,7 @@ DrmPipeline::Error DrmPipeline::legacyModeset()
+     if (!m_primaryLayer-&gt;checkTestBuffer()) {
+         return Error::TestBufferFailed;
+     }
+-    auto commit =3D std::make_unique&lt;DrmLegacyCommit&gt;(this, m_primar=
+yLayer-&gt;currentBuffer());
++    auto commit =3D std::make_unique&lt;DrmLegacyCommit&gt;(this, m_primar=
+yLayer-&gt;currentBuffer(), nullptr);
+     if (!commit-&gt;doModeset(m_connector, m_pending.mode.get())) {
+         qCWarning(KWIN_DRM) &lt;&lt; "Modeset failed!" &lt;&lt; strerror(e=
+rrno);
+         return errnoToError();
+@@ -76,7 +76,7 @@ DrmPipeline::Error DrmPipeline::commitPipelinesLegacy(con=
+st QList&lt;DrmPipeline *&gt;
+         for (const auto &amp;pipeline : pipelines) {
+             pipeline-&gt;applyPendingChanges();
+             if (mode =3D=3D CommitMode::CommitModeset &amp;&amp; pipeline-=
+&gt;activePending()) {
+-                pipeline-&gt;pageFlipped(std::chrono::steady_clock::now().=
+time_since_epoch(), PageflipType::Normal, PresentationMode::VSync);
++                pipeline-&gt;pageFlipped(std::chrono::steady_clock::now().=
+time_since_epoch());
+             }
+         }
+     }
+diff --git a/src/backends/drm/drm_plane.cpp b/src/backends/drm/drm_plane.cp=
+p
+index 0532f629c99..2d47809af58 100644
+--- a/src/backends/drm/drm_plane.cpp
++++ b/src/backends/drm/drm_plane.cpp
+@@ -163,7 +163,7 @@ void DrmPlane::setCurrentBuffer(const std::shared_ptr&l=
+t;DrmFramebuffer&gt; &amp;b)
+ void DrmPlane::disable(DrmAtomicCommit *commit)
+ {
+     commit-&gt;addProperty(crtcId, 0);
+-    commit-&gt;addBuffer(this, nullptr);
++    commit-&gt;addBuffer(this, nullptr, nullptr);
+ }
+=20
+ void DrmPlane::releaseCurrentBuffer()
+diff --git a/src/backends/drm/drm_virtual_egl_layer.cpp b/src/backends/drm/=
+drm_virtual_egl_layer.cpp
+index d948965942b..48b18e60be7 100644
+--- a/src/backends/drm/drm_virtual_egl_layer.cpp
++++ b/src/backends/drm/drm_virtual_egl_layer.cpp
+@@ -141,7 +141,7 @@ std::shared_ptr&lt;GLTexture&gt; VirtualEglGbmLayer::te=
+xture() const
+     }
+ }
+=20
+-bool VirtualEglGbmLayer::scanout(SurfaceItem *surfaceItem)
++bool VirtualEglGbmLayer::scanout(SurfaceItem *surfaceItem, const std::shar=
+ed_ptr&lt;OutputFrame&gt; &amp;frame)
+ {
+     static bool valid;
+     static const bool directScanoutDisabled =3D qEnvironmentVariableIntVal=
+ue("KWIN_DRM_NO_DIRECT_SCANOUT", &amp;valid) =3D=3D 1 &amp;&amp; valid;
+diff --git a/src/backends/drm/drm_virtual_egl_layer.h b/src/backends/drm/dr=
+m_virtual_egl_layer.h
+index 8028a28a07e..e0d837adad8 100644
+--- a/src/backends/drm/drm_virtual_egl_layer.h
++++ b/src/backends/drm/drm_virtual_egl_layer.h
+@@ -36,7 +36,7 @@ public:
+=20
+     std::optional&lt;OutputLayerBeginFrameInfo&gt; beginFrame() override;
+     bool endFrame(const QRegion &amp;renderedRegion, const QRegion &amp;da=
+magedRegion) override;
+-    bool scanout(SurfaceItem *surfaceItem) override;
++    bool scanout(SurfaceItem *surfaceItem, const std::shared_ptr&lt;Output=
+Frame&gt; &amp;frame) override;
+=20
+     QRegion currentDamage() const override;
+     std::shared_ptr&lt;GLTexture&gt; texture() const override;
+diff --git a/src/backends/drm/drm_virtual_output.cpp b/src/backends/drm/drm=
+_virtual_output.cpp
+index 58667c6aeb5..0de2e6032aa 100644
+--- a/src/backends/drm/drm_virtual_output.cpp
++++ b/src/backends/drm/drm_virtual_output.cpp
+@@ -9,6 +9,7 @@
+ */
+ #include "drm_virtual_output.h"
+=20
++#include "core/renderbackend.h"
+ #include "drm_backend.h"
+ #include "drm_gpu.h"
+ #include "drm_layer.h"
+@@ -57,7 +58,7 @@ bool DrmVirtualOutput::present(const std::shared_ptr&lt;O=
+utputFrame&gt; &amp;frame)
+ void DrmVirtualOutput::vblank(std::chrono::nanoseconds timestamp)
+ {
+     if (m_pageFlipPending) {
+-        DrmAbstractOutput::pageFlipped(timestamp, PresentationMode::VSync)=
+;
++        m_frame-&gt;presented(timestamp, PresentationMode::VSync);
+     }
+ }
+=20
+diff --git a/src/compositor.cpp b/src/compositor.cpp
+index 108a72a49a8..2fe1fe6fd69 100644
+--- a/src/compositor.cpp
++++ b/src/compositor.cpp
+@@ -184,7 +184,7 @@ void Compositor::composite(RenderLoop *renderLoop)
+                 return sublayer-&gt;isVisible();
+             });
+             if (scanoutPossible &amp;&amp; !output-&gt;directScanoutInhibi=
+ted()) {
+-                directScanout =3D primaryLayer-&gt;scanout(scanoutCandidat=
+e);
++                directScanout =3D primaryLayer-&gt;scanout(scanoutCandidat=
+e, frame);
+             }
+         }
+=20
+diff --git a/src/core/outputlayer.cpp b/src/core/outputlayer.cpp
+index 5753ef48361..ffc6662b71c 100644
+--- a/src/core/outputlayer.cpp
++++ b/src/core/outputlayer.cpp
+@@ -64,7 +64,7 @@ void OutputLayer::resetRepaints()
+     m_repaints =3D QRegion();
+ }
+=20
+-bool OutputLayer::scanout(SurfaceItem *surfaceItem)
++bool OutputLayer::scanout(SurfaceItem *surfaceItem, const std::shared_ptr&=
+lt;OutputFrame&gt; &amp;frame)
+ {
+     return false;
+ }
+diff --git a/src/core/outputlayer.h b/src/core/outputlayer.h
+index cbe69261091..da14457019d 100644
+--- a/src/core/outputlayer.h
++++ b/src/core/outputlayer.h
+@@ -18,6 +18,7 @@ namespace KWin
+ {
+=20
+ class SurfaceItem;
++class OutputFrame;
+=20
+ struct OutputLayerBeginFrameInfo
+ {
+@@ -73,7 +74,7 @@ public:
+      * Tries to import the newest buffer of the surface for direct scanout
+      * Returns @c true if scanout succeeds, @c false if rendering is neces=
+sary
+      */
+-    virtual bool scanout(SurfaceItem *surfaceItem);
++    virtual bool scanout(SurfaceItem *surfaceItem, const std::shared_ptr&l=
+t;OutputFrame&gt; &amp;frame);
+=20
+     /**
+      * queries the render time of the last frame. If rendering isn't compl=
+ete yet, this may block until it is
+diff --git a/src/core/renderbackend.cpp b/src/core/renderbackend.cpp
+index 303d88e5448..d11253e2b00 100644
+--- a/src/core/renderbackend.cpp
++++ b/src/core/renderbackend.cpp
+@@ -21,7 +21,12 @@ OutputFrame::OutputFrame(RenderLoop *loop, std::chrono::=
+nanoseconds refreshDurat
+ {
+ }
+=20
+-OutputFrame::~OutputFrame() =3D default;
++OutputFrame::~OutputFrame()
++{
++    if (!m_presented &amp;&amp; m_loop) {
++        RenderLoopPrivate::get(m_loop)-&gt;notifyFrameDropped();
++    }
++}
+=20
+ void OutputFrame::addFeedback(std::unique_ptr&lt;PresentationFeedback&gt; =
+&amp;&amp;feedback)
+ {
+@@ -30,11 +35,14 @@ void OutputFrame::addFeedback(std::unique_ptr&lt;Presen=
+tationFeedback&gt; &amp;&amp;feedback)
+=20
+ void OutputFrame::presented(std::chrono::nanoseconds timestamp, Presentati=
+onMode mode)
+ {
++    m_presented =3D true;
+     std::chrono::nanoseconds renderTime;
+     if (m_layer) {
+         renderTime =3D m_layer-&gt;queryRenderTime();
+     }
+-    RenderLoopPrivate::get(m_loop)-&gt;notifyFrameCompleted(timestamp, ren=
+derTime, mode);
++    if (m_loop) {
++        RenderLoopPrivate::get(m_loop)-&gt;notifyFrameCompleted(timestamp,=
+ renderTime, mode);
++    }
+     for (const auto &amp;feedback : m_feedbacks) {
+         feedback-&gt;presented(m_refreshDuration, timestamp, mode);
+     }
+@@ -42,7 +50,6 @@ void OutputFrame::presented(std::chrono::nanoseconds time=
+stamp, PresentationMode
+=20
+ void OutputFrame::failed()
+ {
+-    RenderLoopPrivate::get(m_loop)-&gt;notifyFrameFailed();
+ }
+=20
+ void OutputFrame::setContentType(ContentType type)
+diff --git a/src/core/renderbackend.h b/src/core/renderbackend.h
+index 0bb9c953a19..34c554ffe95 100644
+--- a/src/core/renderbackend.h
++++ b/src/core/renderbackend.h
+@@ -56,13 +56,13 @@ public:
+     PresentationMode presentationMode() const;
+=20
+ private:
+-    RenderLoop *const m_loop;
++    const QPointer&lt;RenderLoop&gt; m_loop;
+     const std::chrono::nanoseconds m_refreshDuration;
+     const QPointer&lt;OutputLayer&gt; m_layer;
+     std::vector&lt;std::unique_ptr&lt;PresentationFeedback&gt;&gt; m_feedb=
+acks;
+     std::optional&lt;ContentType&gt; m_contentType;
+     PresentationMode m_presentationMode =3D PresentationMode::VSync;
+-    QPointer&lt;OutputLayer&gt; m_layer;
++    bool m_presented =3D false;
+ };
+=20
+ /**
+diff --git a/src/core/renderloop.cpp b/src/core/renderloop.cpp
+index 28e0e1115ce..c8491a34336 100644
+--- a/src/core/renderloop.cpp
++++ b/src/core/renderloop.cpp
+@@ -81,7 +81,7 @@ void RenderLoopPrivate::maybeScheduleRepaint()
+     }
+ }
+=20
+-void RenderLoopPrivate::notifyFrameFailed()
++void RenderLoopPrivate::notifyFrameDropped()
+ {
+     Q_ASSERT(pendingFrameCount &gt; 0);
+     pendingFrameCount--;
+diff --git a/src/core/renderloop_p.h b/src/core/renderloop_p.h
+index e49aa99ed8f..9286d7104b7 100644
+--- a/src/core/renderloop_p.h
++++ b/src/core/renderloop_p.h
+@@ -29,7 +29,7 @@ public:
+     void scheduleRepaint();
+     void maybeScheduleRepaint();
+=20
+-    void notifyFrameFailed();
++    void notifyFrameDropped();
+     void notifyFrameCompleted(std::chrono::nanoseconds timestamp, std::chr=
+ono::nanoseconds renderTime, PresentationMode mode =3D PresentationMode::VS=
+ync);
+     void notifyVblank(std::chrono::nanoseconds timestamp);
+=20
+--=20
+GitLab
+
+
+From daf04d09ed5ac169b2a475f543cbceed4b19acbc Mon Sep 17 00:00:00 2001
+From: Xaver Hugl &lt;xaver.hugl@gmail.com&gt;
+Date: Mon, 25 Dec 2023 18:40:02 +0100
+Subject: [PATCH 3/7] renderloop: support triple buffering
+
+---
+ src/core/renderloop.cpp | 44 ++++++++++++++++++++---------------------
+ src/core/renderloop_p.h |  1 +
+ 2 files changed, 23 insertions(+), 22 deletions(-)
+
+diff --git a/src/core/renderloop.cpp b/src/core/renderloop.cpp
+index c8491a34336..9883a81fbc6 100644
+--- a/src/core/renderloop.cpp
++++ b/src/core/renderloop.cpp
+@@ -13,12 +13,6 @@
+ namespace KWin
+ {
+=20
+-template&lt;typename T&gt;
+-T alignTimestamp(const T &amp;timestamp, const T &amp;alignment)
+-{
+-    return timestamp + ((alignment - (timestamp % alignment)) % alignment)=
+;
+-}
+-
+ RenderLoopPrivate *RenderLoopPrivate::get(RenderLoop *loop)
+ {
+     return loop-&gt;d.get();
+@@ -33,6 +27,13 @@ RenderLoopPrivate::RenderLoopPrivate(RenderLoop *q)
+     });
+ }
+=20
++static std::chrono::nanoseconds estimateNextPageflip(std::chrono::nanoseco=
+nds now, std::chrono::nanoseconds lastPageflip, std::chrono::nanoseconds vb=
+lankInterval, int pendingPageflips)
++{
++    // the last pageflip may be in the future
++    const uint64_t pageflipsSince =3D now &gt;=3D lastPageflip ? (now - la=
+stPageflip) / vblankInterval : 0;
++    return lastPageflip + vblankInterval * (pageflipsSince + pendingPagefl=
+ips + 1);
++}
++
+ void RenderLoopPrivate::scheduleRepaint()
+ {
+     if (kwinApp()-&gt;isTerminating() || compositeTimer.isActive()) {
+@@ -41,30 +42,29 @@ void RenderLoopPrivate::scheduleRepaint()
+     const std::chrono::nanoseconds vblankInterval(1'000'000'000'000ull / r=
+efreshRate);
+     const std::chrono::nanoseconds currentTime(std::chrono::steady_clock::=
+now().time_since_epoch());
+=20
+-    // Estimate when the next presentation will occur. Note that this is a=
+ prediction.
+-    nextPresentationTimestamp =3D lastPresentationTimestamp + vblankInterv=
+al;
+-    if (nextPresentationTimestamp &lt; currentTime &amp;&amp; presentation=
+Mode =3D=3D PresentationMode::VSync) {
+-        nextPresentationTimestamp =3D lastPresentationTimestamp
+-            + alignTimestamp(currentTime - lastPresentationTimestamp, vbla=
+nkInterval);
+-    }
+-
+     // Estimate when it's a good time to perform the next compositing cycl=
+e.
+     // this safety margin is required for
+     // - the buffer readiness deadline in the drm backend, which is 1.8ms =
+before vblank
+     // - scheduling and timer inaccuracies (estimated to be up to 1.2ms he=
+re)
+     const std::chrono::nanoseconds safetyMargin =3D std::chrono::milliseco=
+nds(3);
+-    std::chrono::nanoseconds nextRenderTimestamp =3D nextPresentationTimes=
+tamp - renderJournal.result() - safetyMargin;
+-
+-    // If we can't render the frame before the deadline, start compositing=
+ immediately.
+-    if (nextRenderTimestamp &lt; currentTime) {
+-        nextRenderTimestamp =3D currentTime;
++    const std::chrono::nanoseconds timeBeforeVblank =3D std::min(renderJou=
+rnal.result() + safetyMargin, 2 * vblankInterval);
++
++    if (presentationMode =3D=3D PresentationMode::VSync) {
++        // normal presentation: pageflips only happen at vblank
++        nextPresentationTimestamp =3D estimateNextPageflip(currentTime + t=
+imeBeforeVblank, lastPresentationTimestamp, vblankInterval, pendingFrameCou=
+nt);
++    } else if (presentationMode =3D=3D PresentationMode::Async || presenta=
+tionMode =3D=3D PresentationMode::AdaptiveAsync) {
++        // tearing: pageflips happen ASAP
++        nextPresentationTimestamp =3D currentTime;
++    } else {
++        // adaptive sync: pageflips happen after one vblank interval
++        nextPresentationTimestamp =3D lastPresentationTimestamp + vblankIn=
+terval;
+     }
+=20
+-    if (presentationMode =3D=3D PresentationMode::Async || presentationMod=
+e =3D=3D PresentationMode::AdaptiveAsync) {
++    const std::chrono::nanoseconds nextRenderTimestamp =3D nextPresentatio=
+nTimestamp - timeBeforeVblank;
++    if (nextRenderTimestamp &lt;=3D currentTime) {
+         compositeTimer.start(0);
+     } else {
+-        const std::chrono::nanoseconds waitInterval =3D nextRenderTimestam=
+p - currentTime;
+-        compositeTimer.start(std::chrono::duration_cast&lt;std::chrono::mi=
+lliseconds&gt;(waitInterval));
++        compositeTimer.start(std::chrono::duration_cast&lt;std::chrono::mi=
+lliseconds&gt;(nextRenderTimestamp - currentTime));
+     }
+ }
+=20
+@@ -196,7 +196,7 @@ void RenderLoop::scheduleRepaint(Item *item)
+     if (d-&gt;pendingRepaint || (d-&gt;fullscreenItem !=3D nullptr &amp;&a=
+mp; item !=3D nullptr &amp;&amp; item !=3D d-&gt;fullscreenItem)) {
+         return;
+     }
+-    if (!d-&gt;pendingFrameCount &amp;&amp; !d-&gt;inhibitCount) {
++    if (d-&gt;pendingFrameCount &lt; d-&gt;maxPendingFrameCount &amp;&amp;=
+ !d-&gt;inhibitCount) {
+         d-&gt;scheduleRepaint();
+     } else {
+         d-&gt;delayScheduleRepaint();
+diff --git a/src/core/renderloop_p.h b/src/core/renderloop_p.h
+index 9286d7104b7..3959205d5c7 100644
+--- a/src/core/renderloop_p.h
++++ b/src/core/renderloop_p.h
+@@ -47,6 +47,7 @@ public:
+=20
+     PresentationMode presentationMode =3D PresentationMode::VSync;
+     bool canDoTearing =3D false;
++    int maxPendingFrameCount =3D 1;
+ };
+=20
+ } // namespace KWin
+--=20
+GitLab
+
+
+From debab2ee028d3eec770cbdc3a3273a521041b808 Mon Sep 17 00:00:00 2001
+From: Xaver Hugl &lt;xaver.hugl@gmail.com&gt;
+Date: Tue, 26 Dec 2023 01:38:54 +0100
+Subject: [PATCH 4/7] backends/drm: ensure OutputFrames don't get deleted in
+ the commit thread
+
+Merging two commits may reduce the use count of a frame object to zero. To =
+avoid
+that, only operate on copied commits, and have the original commits and the=
+ir content
+be cleaned up by the main thread
+---
+ src/backends/drm/drm_commit_thread.cpp | 40 +++++++++++++++++++-------
+ src/core/renderbackend.cpp             |  3 ++
+ 2 files changed, 32 insertions(+), 11 deletions(-)
+
+diff --git a/src/backends/drm/drm_commit_thread.cpp b/src/backends/drm/drm_=
+commit_thread.cpp
+index 6d9875d9fc7..d607e5873cb 100644
+--- a/src/backends/drm/drm_commit_thread.cpp
++++ b/src/backends/drm/drm_commit_thread.cpp
+@@ -76,6 +76,15 @@ DrmCommitThread::DrmCommitThread(const QString &amp;name=
+)
+     m_thread-&gt;start();
+ }
+=20
++static std::unique_ptr&lt;DrmAtomicCommit&gt; mergeCommits(std::span&lt;co=
+nst std::unique_ptr&lt;DrmAtomicCommit&gt;&gt; commits)
++{
++    auto ret =3D std::make_unique&lt;DrmAtomicCommit&gt;(*commits.front())=
+;
++    for (const auto &amp;onTop : commits.subspan(1)) {
++        ret-&gt;merge(onTop.get());
++    }
++    return ret;
++}
++
+ void DrmCommitThread::optimizeCommits()
+ {
+     if (m_commits.size() &lt;=3D 1) {
+@@ -83,22 +92,31 @@ void DrmCommitThread::optimizeCommits()
+     }
+     // merge commits in the front that are already ready (regardless of wh=
+ich planes they modify)
+     if (m_commits.front()-&gt;areBuffersReadable()) {
+-        auto it =3D m_commits.begin() + 1;
+-        while (it !=3D m_commits.end() &amp;&amp; (*it)-&gt;areBuffersRead=
+able()) {
+-            m_commits.front()-&gt;merge(it-&gt;get());
+-            m_droppedCommits.push_back(std::move(*it));
+-            it =3D m_commits.erase(it);
++        const auto firstNotReadable =3D std::find_if(m_commits.begin() + 1=
+, m_commits.end(), [](const auto &amp;commit) {
++            return !commit-&gt;areBuffersReadable();
++        });
++        if (firstNotReadable !=3D m_commits.begin() + 1) {
++            auto merged =3D mergeCommits(std::span(m_commits.begin(), firs=
+tNotReadable));
++            std::move(m_commits.begin(), firstNotReadable, std::back_inser=
+ter(m_droppedCommits));
++            m_commits.erase(m_commits.begin() + 1, firstNotReadable);
++            m_commits.front() =3D std::move(merged);
+         }
+     }
+     // merge commits that are ready and modify the same drm planes
+     for (auto it =3D m_commits.begin(); it !=3D m_commits.end();) {
+-        DrmAtomicCommit *const commit =3D it-&gt;get();
+-        it++;
+-        while (it !=3D m_commits.end() &amp;&amp; commit-&gt;modifiedPlane=
+s() =3D=3D (*it)-&gt;modifiedPlanes() &amp;&amp; (*it)-&gt;areBuffersReadab=
+le()) {
+-            commit-&gt;merge(it-&gt;get());
+-            m_droppedCommits.push_back(std::move(*it));
+-            it =3D m_commits.erase(it);
++        const auto startIt =3D it;
++        auto &amp;startCommit =3D *startIt;
++        const auto firstNotSamePlaneReadable =3D std::find_if(startIt + 1,=
+ m_commits.end(), [&amp;startCommit](const auto &amp;commit) {
++            return startCommit-&gt;modifiedPlanes() !=3D commit-&gt;modifi=
+edPlanes() || !commit-&gt;areBuffersReadable();
++        });
++        if (firstNotSamePlaneReadable =3D=3D startIt + 1) {
++            it++;
++            continue;
+         }
++        auto merged =3D mergeCommits(std::span(startIt, firstNotSamePlaneR=
+eadable));
++        std::move(startIt, firstNotSamePlaneReadable, std::back_inserter(m=
+_droppedCommits));
++        startCommit =3D std::move(merged);
++        it =3D m_commits.erase(startIt + 1, firstNotSamePlaneReadable);
+     }
+     if (m_commits.size() =3D=3D 1) {
+         // already done
+diff --git a/src/core/renderbackend.cpp b/src/core/renderbackend.cpp
+index d11253e2b00..be73332332f 100644
+--- a/src/core/renderbackend.cpp
++++ b/src/core/renderbackend.cpp
+@@ -9,6 +9,8 @@
+ #include "renderloop_p.h"
+ #include "scene/surfaceitem.h"
+=20
++#include &lt;QApplication&gt;
++#include &lt;QThread&gt;
+ #include &lt;drm_fourcc.h&gt;
+=20
+ namespace KWin
+@@ -23,6 +25,7 @@ OutputFrame::OutputFrame(RenderLoop *loop, std::chrono::n=
+anoseconds refreshDurat
+=20
+ OutputFrame::~OutputFrame()
+ {
++    Q_ASSERT(QThread::currentThread() =3D=3D QApplication::instance()-&gt;=
+thread());
+     if (!m_presented &amp;&amp; m_loop) {
+         RenderLoopPrivate::get(m_loop)-&gt;notifyFrameDropped();
+     }
+--=20
+GitLab
+
+
+From 0d6f5607f40e39dd0312f0f9fd1d2fe686f6e447 Mon Sep 17 00:00:00 2001
+From: Xaver Hugl &lt;xaver.hugl@gmail.com&gt;
+Date: Tue, 26 Dec 2023 01:43:05 +0100
+Subject: [PATCH 5/7] backends/drm: remove unused members from DrmAtomicComm=
+it
+
+---
+ src/backends/drm/drm_commit.cpp   | 12 ------------
+ src/backends/drm/drm_commit.h     |  5 -----
+ src/backends/drm/drm_pipeline.cpp |  1 -
+ 3 files changed, 18 deletions(-)
+
+diff --git a/src/backends/drm/drm_commit.cpp b/src/backends/drm/drm_commit.=
+cpp
+index e559c33bd2e..837950b267b 100644
+--- a/src/backends/drm/drm_commit.cpp
++++ b/src/backends/drm/drm_commit.cpp
+@@ -94,7 +94,6 @@ bool DrmAtomicCommit::commit()
+=20
+ bool DrmAtomicCommit::commitModeset()
+ {
+-    m_modeset =3D true;
+     return doCommit(DRM_MODE_ATOMIC_ALLOW_MODESET);
+ }
+=20
+@@ -196,17 +195,6 @@ void DrmAtomicCommit::merge(DrmAtomicCommit *onTop)
+     if (onTop-&gt;m_vrr) {
+         m_vrr =3D onTop-&gt;m_vrr;
+     }
+-    m_cursorOnly &amp;=3D onTop-&gt;isCursorOnly();
+-}
+-
+-void DrmAtomicCommit::setCursorOnly(bool cursor)
+-{
+-    m_cursorOnly =3D cursor;
+-}
+-
+-bool DrmAtomicCommit::isCursorOnly() const
+-{
+-    return m_cursorOnly;
+ }
+=20
+ DrmLegacyCommit::DrmLegacyCommit(DrmPipeline *pipeline, const std::shared_=
+ptr&lt;DrmFramebuffer&gt; &amp;buffer, const std::shared_ptr&lt;OutputFrame=
+&gt; &amp;frame)
+diff --git a/src/backends/drm/drm_commit.h b/src/backends/drm/drm_commit.h
+index 8373ae032ce..43401c8ffa0 100644
+--- a/src/backends/drm/drm_commit.h
++++ b/src/backends/drm/drm_commit.h
+@@ -79,9 +79,6 @@ public:
+=20
+     void merge(DrmAtomicCommit *onTop);
+=20
+-    void setCursorOnly(bool cursor);
+-    bool isCursorOnly() const;
+-
+ private:
+     bool doCommit(uint32_t flags);
+=20
+@@ -92,8 +89,6 @@ private:
+     std::unordered_set&lt;DrmPlane *&gt; m_planes;
+     std::optional&lt;bool&gt; m_vrr;
+     std::unordered_map&lt;uint32_t /* object */, std::unordered_map&lt;uin=
+t32_t /* property */, uint64_t /* value */&gt;&gt; m_properties;
+-    bool m_cursorOnly =3D false;
+-    bool m_modeset =3D false;
+     PresentationMode m_mode =3D PresentationMode::VSync;
+ };
+=20
+diff --git a/src/backends/drm/drm_pipeline.cpp b/src/backends/drm/drm_pipel=
+ine.cpp
+index 11de681ce65..1d0cdcce0f1 100644
+--- a/src/backends/drm/drm_pipeline.cpp
++++ b/src/backends/drm/drm_pipeline.cpp
+@@ -409,7 +409,6 @@ bool DrmPipeline::updateCursor()
+         // only give the actual state update to the commit thread, so that=
+ it can potentially reorder the commits
+         auto cursorOnly =3D std::make_unique&lt;DrmAtomicCommit&gt;(QList&=
+lt;DrmPipeline *&gt;{this});
+         prepareAtomicCursor(cursorOnly.get());
+-        cursorOnly-&gt;setCursorOnly(true);
+         m_commitThread-&gt;addCommit(std::move(cursorOnly));
+         return true;
+     } else {
+--=20
+GitLab
+
+
+From c25319ad24114899c52c1f857efbc98eaad929df Mon Sep 17 00:00:00 2001
+From: Xaver Hugl &lt;xaver.hugl@gmail.com&gt;
+Date: Tue, 26 Dec 2023 01:43:36 +0100
+Subject: [PATCH 6/7] draft: backends/drm: enable triple buffering
+
+Draft because render time queries still need to be tied to the commits. Rig=
+ht now,
+when a frame gets finished with the next one already pending, the query wil=
+l block
+until that next one is done
+
+CCBUG: 452119
+---
+ src/backends/drm/drm_output.cpp | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/backends/drm/drm_output.cpp b/src/backends/drm/drm_output.=
+cpp
+index 4e5ac6096c7..637cd0aa676 100644
+--- a/src/backends/drm/drm_output.cpp
++++ b/src/backends/drm/drm_output.cpp
+@@ -42,6 +42,7 @@ DrmOutput::DrmOutput(const std::shared_ptr&lt;DrmConnecto=
+r&gt; &amp;conn)
+ {
+     m_pipeline-&gt;setOutput(this);
+     m_renderLoop-&gt;setRefreshRate(m_pipeline-&gt;mode()-&gt;refreshRate(=
+));
++    RenderLoopPrivate::get(m_renderLoop.get())-&gt;maxPendingFrameCount =
+=3D 2;
+=20
+     Capabilities capabilities =3D Capability::Dpms | Capability::IccProfil=
+e;
+     State initialState;
+--=20
+GitLab
+
+
+From 2304079e790b86db8b5f4dc1e5d88600fc01f826 Mon Sep 17 00:00:00 2001
+From: Xaver Hugl &lt;xaver.hugl@gmail.com&gt;
+Date: Tue, 26 Dec 2023 03:21:25 +0100
+Subject: [PATCH 7/7] backends/virtual: fix frame reporting
+
+---
+ src/backends/virtual/virtual_output.cpp | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/src/backends/virtual/virtual_output.cpp b/src/backends/virtual=
+/virtual_output.cpp
+index 9515d787824..772ed437d28 100644
+--- a/src/backends/virtual/virtual_output.cpp
++++ b/src/backends/virtual/virtual_output.cpp
+@@ -74,8 +74,10 @@ void VirtualOutput::updateEnabled(bool enabled)
+=20
+ void VirtualOutput::vblank(std::chrono::nanoseconds timestamp)
+ {
+-    RenderLoopPrivate *renderLoopPrivate =3D RenderLoopPrivate::get(m_rend=
+erLoop.get());
+-    renderLoopPrivate-&gt;notifyFrameCompleted(timestamp, Compositor::self=
+()-&gt;backend()-&gt;primaryLayer(this)-&gt;queryRenderTime());
++    if (m_frame) {
++        m_frame-&gt;presented(timestamp, PresentationMode::VSync);
++        m_frame.reset();
++    }
+ }
+=20
+ }
+--=20
+GitLab
+
+</pre></body></html>
+------MultipartBoundary--mwkwEYX6FGdJITkmDlAgkhEo1ja6cd6CGlfX2cml3g----
+Content-Type: text/css
+Content-Transfer-Encoding: quoted-printable
+Content-Location: cid:css-abbb83f5-c51d-4717-9c46-e72df78e3319@mhtml.blink
+
+@charset "windows-1252";
+=0A
+------MultipartBoundary--mwkwEYX6FGdJITkmDlAgkhEo1ja6cd6CGlfX2cml3g------
