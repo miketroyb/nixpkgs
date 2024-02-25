@@ -44,11 +44,8 @@ index 9211fd81269..67a6e5beaca 100644
      output-&gt;renderLoop()-&gt;prepareNewFrame();
      output-&gt;renderLoop()-&gt;beginPaint();
      layer-&gt;endFrame(infiniteRegion(), infiniteRegion());
--    QVERIFY(output-&gt;present(std::make_shared&lt;OutputFrame&gt;(output-=
-&gt;renderLoop(), layer)));
-+    QVERIFY(output-&gt;present(std::make_shared&lt;OutputFrame&gt;(output-=
-&gt;renderLoop(), std::chrono::nanoseconds(1'000'000'000'000 / output-&gt;r=
-efreshRate()), layer)));
+-    QVERIFY(output-&gt;present(std::make_shared&lt;OutputFrame&gt;(output-= &gt;renderLoop(), layer)));
++    QVERIFY(output-&gt;present(std::make_shared&lt;OutputFrame&gt;(output-= &gt;renderLoop(), std::chrono::nanoseconds(1'000'000'000'000 / output-&gt;r=efreshRate()), layer)));
 =20
      gpu.reset();
      verifyCleanup(mockGpu.get());
