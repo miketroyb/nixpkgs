@@ -23,7 +23,6 @@ mkKdeDerivation {
     # Follow symlinks when searching for aurorae configs
     # FIXME(later): upstream?
     ./0001-follow-symlinks.patch
-    ./0002-triple-buffer.patch
     # The rest are NixOS-specific hacks
     ./0003-plugins-qpa-allow-using-nixos-wrapper.patch
     ./0001-NixOS-Unwrap-executable-name-for-.desktop-search.patch
