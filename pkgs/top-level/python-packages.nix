@@ -2669,7 +2669,7 @@ self: super: with self; {
   datadog = callPackage ../development/python-modules/datadog { };
 
   datafusion = callPackage ../development/python-modules/datafusion {
-    inherit (pkgs.darwin.apple_sdk.frameworks) Security;
+    inherit (pkgs.darwin.apple_sdk.frameworks) Security SystemConfiguration;
   };
 
   datamodeldict = callPackage ../development/python-modules/datamodeldict { };
@@ -8951,6 +8951,8 @@ self: super: with self; {
   orange-widget-base = callPackage ../development/python-modules/orange-widget-base { };
 
   oras = callPackage ../development/python-modules/oras { };
+
+  orbax-checkpoint = callPackage ../development/python-modules/orbax-checkpoint { };
 
   orderedmultidict = callPackage ../development/python-modules/orderedmultidict { };
 
